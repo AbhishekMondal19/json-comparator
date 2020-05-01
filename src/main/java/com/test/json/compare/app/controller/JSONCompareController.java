@@ -1,7 +1,11 @@
 package com.test.json.compare.app.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Maps;
+import com.google.common.reflect.TypeToken;
+import com.google.gson.Gson;
 import com.test.json.compare.app.model.BaseContent;
 import com.test.json.compare.app.model.BaseContentDO;
 import com.test.json.compare.app.repository.JSONCrudRepo;
@@ -18,12 +22,10 @@ import javax.sql.rowset.serial.SerialClob;
 import javax.websocket.server.PathParam;
 import java.io.IOException;
 import java.io.Reader;
+import java.lang.reflect.Type;
 import java.sql.Clob;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 @RestController
 public class JSONCompareController {
@@ -33,10 +35,13 @@ public class JSONCompareController {
     private JSONCrudRepo jsonCrudRepo;
 
     @PostMapping("/json")
-    public ResponseEntity<String> saveJsonData(@RequestBody BaseContent baseContent) throws SQLException {
+    public ResponseEntity<String> saveJsonData(@RequestBody BaseContent baseContent) throws SQLException, JsonProcessingException {
         BaseContentDO baseContentDO = new BaseContentDO();
         LOGGER.debug("Base Content : {} ", baseContent.toString());
-        Clob myClob = new SerialClob(baseContent.toString().toCharArray());
+        ObjectMapper mapper = new ObjectMapper();
+        String jsonInputStr = mapper.writeValueAsString(baseContent);
+        LOGGER.debug("Json Input String : {} ", jsonInputStr);
+        Clob myClob = new SerialClob(jsonInputStr.toCharArray());
         baseContentDO.setJsonData(myClob);
         jsonCrudRepo.save(baseContentDO);
         LOGGER.debug("Data inserted successfully");
@@ -114,15 +119,19 @@ public class JSONCompareController {
                 while ((ch = r.read()) != -1) {
                     response.append("" + (char) ch);
                 }
-                response.replace(0, 11, "");
-                System.out.println("Contents from DB : " + response.toString());
+                //response.replace(0, 11, "");
+                String dbJsonStr = response.toString();
+                LOGGER.debug("Contents from DB :  {}"  ,dbJsonStr);
                 ObjectMapper mapper = new ObjectMapper();
                 String jsonInputStr = mapper.writeValueAsString(baseContent);
                 LOGGER.debug("Json Input String : {} ", jsonInputStr);
-                String jsonDBStr = mapper.writeValueAsString(response);
-                LOGGER.debug("Json DB String : {} ", jsonDBStr);
-                Object diffObject = jsonsEqual(jsonInputStr, jsonDBStr);
-                LOGGER.info("Diff : {} ", diffObject);
+
+                Gson gson = new Gson();
+                Type mapType = new TypeToken<Map<String, Object>>(){}.getType();
+                Map<String, Object> firstMap = gson.fromJson(dbJsonStr, mapType);
+                Map<String, Object> secondMap = gson.fromJson(jsonInputStr, mapType);
+                LOGGER.debug(" Diff :: {}" ,Maps.difference(firstMap, secondMap));
+
             } catch (Exception ex) {
                 LOGGER.error("Error occurred while camparing two JSON data :: {}", ex.getCause());
             }
@@ -133,9 +142,7 @@ public class JSONCompareController {
 
     public static Object jsonsEqual(Object obj1, Object obj2) throws JSONException {
         JSONObject diff = new JSONObject();
-        if (!obj1.getClass().equals(obj2.getClass())) {
-            return diff;
-        }
+
         JSONObject jsonObj1 = (JSONObject) obj1;
 
         JSONObject jsonObj2 = (JSONObject) obj2;
